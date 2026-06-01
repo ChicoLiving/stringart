@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>String Art</title>
+<style>
+  :root{
+    --c:#00b3d6; --m:#e0218a; --y:#f5d300; --k:#1a1a1a;
+    --bg:#0e0f13; --panel:#171a21; --line:#272b35; --txt:#e8eaf0; --muted:#8b90a0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Courier New',monospace;background:
+    radial-gradient(circle at 20% 0%,#1a1d26,transparent 60%),var(--bg);
+    color:var(--txt);min-height:100vh}
+  header{padding:28px 32px;border-bottom:1px solid var(--line)}
+  h1{margin:0;font-size:24px;letter-spacing:2px;font-weight:700}
+  h1 .c{color:var(--c)}h1 .m{color:var(--m)}h1 .y{color:var(--y)}
+  .sub{color:var(--muted);font-size:12px;margin-top:6px;letter-spacing:1px}
+  .wrap{display:grid;grid-template-columns:340px 1fr;gap:24px;padding:24px 32px}
+  @media(max-width:880px){.wrap{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+  label{display:block;font-size:11px;color:var(--muted);letter-spacing:1px;margin:14px 0 6px;text-transform:uppercase}
+  input[type=range]{width:100%;accent-color:var(--m)}
+  .val{float:right;color:var(--txt)}
+  button{width:100%;padding:13px;border:0;border-radius:10px;font-family:inherit;
+    font-weight:700;letter-spacing:1px;cursor:pointer;font-size:13px;margin-top:8px}
+  .primary{background:linear-gradient(90deg,var(--c),var(--m));color:#fff}
+  .primary:disabled{opacity:.4;cursor:not-allowed}
+  .ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+  .drop{border:2px dashed var(--line);border-radius:10px;padding:24px;text-align:center;
+    color:var(--muted);cursor:pointer;font-size:12px;transition:.2s}
+  .drop:hover{border-color:var(--m);color:var(--txt)}
+  .progress{height:6px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:14px}
+  .bar{height:100%;width:0;background:linear-gradient(90deg,var(--c),var(--m),var(--y));transition:width .1s}
+  .status{font-size:12px;color:var(--muted);margin-top:10px;min-height:16px}
+  .canvases{display:flex;flex-direction:column;gap:18px;align-items:center}
+  .stage{background:#fff;box-shadow:0 10px 40px rgba(0,0,0,.5);max-width:100%}
+  .layers{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;width:100%}
+  .layer{background:#fff;border-radius:8px;width:100%}
+  .layerbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+  .layerbox span{font-size:11px;color:var(--muted);letter-spacing:1px;display:flex;align-items:center;justify-content:center;gap:6px}
+  .swatch{width:11px;height:11px;border-radius:50%;display:inline-block;border:1px solid #0006}
+  .dl{display:none;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .dl button{width:auto;flex:1 1 40%;padding:9px;font-size:11px}
+  .seg{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .seg button{font-size:11px;padding:9px;flex:1}
+  .seg .on{outline:2px solid var(--m)}
+  .palette{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .palette .sw{width:26px;height:26px;border-radius:6px;border:1px solid #0006}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="c">STRING</span> <span class="m">ART</span> <span class="y">GEN</span></h1>
+  <div class="sub">Foto → Capas de hilo · Secuencia de clavos · CMYK o colores de la imagen</div>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <div class="drop" id="drop">Arrastra una imagen aquí<br>o haz clic para elegir</div>
+    <input type="file" id="file" accept="image/*" hidden>
+
+    <label>Forma del marco</label>
+    <div class="seg" id="shapeMode">
+      <button class="ghost on" data-s="round">Redondo</button>
+      <button class="ghost" data-s="square">Cuadrado</button>
+      <button class="ghost" data-s="rect">Rectangular</button>
+    </div>
+
+    <div id="ratioOpts" style="display:none">
+      <label>Proporción ancho:alto <span class="val" id="vRatio">16:10</span></label>
+      <input type="range" id="ratio" min="50" max="200" step="5" value="160">
+    </div>
+
+    <label>Paleta</label>
+    <div class="seg" id="paletteMode">
+      <button class="ghost on" data-p="cmyk">CMYK</button>
+      <button class="ghost" data-p="extract">Colores de la imagen</button>
+    </div>
+
+    <div id="extractOpts" style="display:none">
+      <label>N° de colores <span class="val" id="vK">5</span></label>
+      <input type="range" id="kcolors" min="2" max="8" step="1" value="5">
+      <div class="palette" id="paletteView"></div>
+    </div>
+
+    <label>Clavos <span class="val" id="vNails">250</span></label>
+    <input type="range" id="nails" min="80" max="400" step="10" value="250">
+
+    <label>Líneas por color <span class="val" id="vLines">1000</span></label>
+    <input type="range" id="lines" min="200" max="3000" step="100" value="1000">
+
+    <label>Resolución (px) <span class="val" id="vRes">500</span></label>
+    <input type="range" id="res" min="300" max="800" step="50" value="500">
+
+    <label>Peso de línea <span class="val" id="vWeight">20</span></label>
+    <input type="range" id="weight" min="5" max="60" step="5" value="20">
+
+    <button class="primary" id="run" disabled>Generar String Art</button>
+    <button class="ghost" id="stop" style="display:none">Detener</button>
+
+    <div class="progress"><div class="bar" id="bar"></div></div>
+    <div class="status" id="status">Esperando imagen…</div>
+
+    <div class="seg" id="viewToggle" style="display:none">
+      <button data-v="combined" class="ghost on">Combinado</button>
+      <button data-v="separate" class="ghost">Capas</button>
+    </div>
+
+    <div class="dl" id="dl"></div>
+  </div>
+
+  <div class="panel">
+    <div class="canvases">
+      <canvas id="main" class="stage" width="500" height="500"></canvas>
+      <div class="layers" id="layers"></div>
+    </div>
+  </div>
+</div>
+
+<script id="worker" type="javascript/worker">
+let lines=null;
+function bres(x0,y0,x1,y1,W){
+  const pts=[];let dx=Math.abs(x1-x0),dy=Math.abs(y1-y0);
+  let x=x0,y=y0,sx=x0>x1?-1:1,sy=y0>y1?-1:1;
+  if(dx>dy){let e=dx/2;while(x!==x1){pts.push(y*W+x);e-=dy;if(e<0){y+=sy;e+=dx}x+=sx;}}
+  else{let e=dy/2;while(y!==y1){pts.push(y*W+x);e-=dx;if(e<0){x+=sx;e+=dy}y+=sy;}}
+  pts.push(y1*W+x1);return Int32Array.from(pts);
+}
+function buildLines(nails,W){
+  const N=nails.length;lines=new Array(N*N);
+  for(let a=0;a<N;a++)for(let b=a+1;b<N;b++){
+    const l=bres(nails[a][0],nails[a][1],nails[b][0],nails[b][1],W);
+    lines[a*N+b]=l;lines[b*N+a]=l;
+  }
+}
+function computeLayer(arr,N,maxLines,weight,residual){
+  const work=Float32Array.from(arr);
+  for(let i=0;i<work.length;i++)work[i]=Math.max(0,work[i]-residual[i]);
+  let cur=0;const seq=[cur];
+  for(let it=0;it<maxLines;it++){
+    let best=-1,bestScore=-1,bestLine=null;
+    for(let c=0;c<N;c++){
+      if(c===cur)continue;
+      const line=lines[cur*N+c];let s=0;
+      for(let p=0;p<line.length;p++)s+=work[line[p]];
+      s/=line.length;
+      if(s>bestScore){bestScore=s;best=c;bestLine=line;}
+    }
+    seq.push(best);
+    for(let p=0;p<bestLine.length;p++){const idx=bestLine[p];work[idx]=Math.max(0,work[idx]-weight);residual[idx]+=weight;}
+    cur=best;
+    if(it%150===0)postMessage({type:'prog',p:it/maxLines});
+  }
+  return seq;
+}
+onmessage=e=>{
+  const d=e.data;
+  if(d.type==='nails'){buildLines(d.nails,d.W);postMessage({type:'nailsReady'});return;}
+  if(d.type==='layer'){
+    const seq=computeLayer(d.arr,d.N,d.maxLines,d.weight,d.residual);
+    postMessage({type:'layerDone',name:d.name,seq,residual:d.residual},[d.residual.buffer]);
+  }
+};
+</script>
+
+<script>
+let imgEl=null,running=false,sequences={},nailCoords=[],palette=[],worker=null;
+let mode='cmyk',shape='round';
+
+const $=id=>document.getElementById(id);
+[['nails','vNails'],['lines','vLines'],['res','vRes'],['weight','vWeight'],['kcolors','vK']]
+  .forEach(([s,v])=>$(s).oninput=()=>{$(v).textContent=$(s).value;if(s==='kcolors'&&imgEl)buildPalette();});
+$('ratio').oninput=()=>{const r=(+$('ratio').value/100);$('vRatio').textContent=`${(r*10).toFixed(0)}:10`;if(imgEl)previewSource();};
+
+$('drop').onclick=()=>$('file').click();
+$('file').onchange=e=>loadFile(e.target.files[0]);
+['dragover','dragleave','drop'].forEach(ev=>$('drop').addEventListener(ev,e=>{
+  e.preventDefault();if(ev==='drop'&&e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0]);
+}));
+
+$('shapeMode').onclick=e=>{
+  if(e.target.tagName!=='BUTTON')return;
+  [...$('shapeMode').children].forEach(b=>b.classList.remove('on'));
+  e.target.classList.add('on');shape=e.target.dataset.s;
+  $('ratioOpts').style.display=shape==='rect'?'block':'none';
+  if(imgEl){previewSource();buildPalette();}
+};
+$('paletteMode').onclick=e=>{
+  if(e.target.tagName!=='BUTTON')return;
+  [...$('paletteMode').children].forEach(b=>b.classList.remove('on'));
+  e.target.classList.add('on');mode=e.target.dataset.p;
+  $('extractOpts').style.display=mode==='extract'?'block':'none';
+  if(imgEl)buildPalette();
+};
+
+function loadFile(f){
+  if(!f)return;const r=new FileReader();
+  r.onload=()=>{imgEl=new Image();imgEl.onload=()=>{$('run').disabled=false;$('status').textContent='Imagen cargada. Listo para generar.';previewSource();buildPalette();};imgEl.src=r.result;};
+  r.readAsDataURL(f);
+}
+
+function dims(res){
+  if(shape==='rect'){const r=+$('ratio').value/100;return r>=1?{W:res,H:Math.round(res/r)}:{W:Math.round(res*r),H:res};}
+  return {W:res,H:res};
+}
+
+function getImage(res){
+  const {W,H}=dims(res);
+  const c=document.createElement('canvas');c.width=W;c.height=H;
+  const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+  ctx.save();
+  if(shape==='round'){ctx.beginPath();ctx.ellipse(W/2,H/2,W/2,H/2,0,0,Math.PI*2);ctx.clip();}
+  const ir=imgEl.width/imgEl.height, fr=W/H;
+  let sw,sh,sx,sy;
+  if(ir>fr){sh=imgEl.height;sw=sh*fr;sx=(imgEl.width-sw)/2;sy=0;}
+  else{sw=imgEl.width;sh=sw/fr;sx=0;sy=(imgEl.height-sh)/2;}
+  ctx.drawImage(imgEl,sx,sy,sw,sh,0,0,W,H);
+  ctx.restore();
+  return {data:ctx.getImageData(0,0,W,H),W,H};
+}
+
+function previewSource(){
+  const res=+$('res').value;const {data,W,H}=getImage(res);
+  const m=$('main');m.width=W;m.height=H;
+  m.style.borderRadius=shape==='round'?'50%':'12px';
+  m.getContext('2d').putImageData(data,0,0);
+}
+
+function buildPalette(){
+  if(mode==='cmyk'){
+    palette=[{name:'Amarillo',rgb:[245,211,0]},{name:'Cian',rgb:[0,179,214]},
+             {name:'Magenta',rgb:[224,33,138]},{name:'Negro',rgb:[26,26,26]}];
+    $('paletteView').innerHTML='';
+  }else{
+    palette=extractColors(+$('kcolors').value);
+    $('paletteView').innerHTML=palette.map(p=>`<div class="sw" style="background:rgb(${p.rgb.join(',')})"></div>`).join('');
+  }
+}
+function extractColors(k){
+  const s=64;const c=document.createElement('canvas');c.width=c.height=s;const ctx=c.getContext('2d');
+  const min=Math.min(imgEl.width,imgEl.height);
+  ctx.drawImage(imgEl,(imgEl.width-min)/2,(imgEl.height-min)/2,min,min,0,0,s,s);
+  const d=ctx.getImageData(0,0,s,s).data;const pts=[];
+  for(let i=0;i<s*s;i++)pts.push([d[i*4],d[i*4+1],d[i*4+2]]);
+  let cent=[pts[Math.floor(Math.random()*pts.length)]];
+  while(cent.length<k){let far=null,fd=-1;for(const p of pts){let dm=1e9;for(const ce of cent){const dd=(p[0]-ce[0])**2+(p[1]-ce[1])**2+(p[2]-ce[2])**2;if(dd<dm)dm=dd;}if(dm>fd){fd=dm;far=p;}}cent.push(far);}
+  for(let it=0;it<12;it++){
+    const sum=cent.map(()=>[0,0,0,0]);
+    for(const p of pts){let bi=0,bd=1e9;for(let j=0;j<cent.length;j++){const dd=(p[0]-cent[j][0])**2+(p[1]-cent[j][1])**2+(p[2]-cent[j][2])**2;if(dd<bd){bd=dd;bi=j;}}sum[bi][0]+=p[0];sum[bi][1]+=p[1];sum[bi][2]+=p[2];sum[bi][3]++;}
+    cent=cent.map((ce,j)=>sum[j][3]?[sum[j][0]/sum[j][3],sum[j][1]/sum[j][3],sum[j][2]/sum[j][3]]:ce);
+  }
+  cent.sort((a,b)=>(b[0]+b[1]+b[2])-(a[0]+a[1]+a[2]));
+  return cent.map((ce,i)=>({name:'Color'+(i+1),rgb:ce.map(v=>Math.round(v))}));
+}
+
+function buildChannels(imgData,n){
+  const d=imgData.data;const ch=palette.map(()=>new Float32Array(n));
+  const cols=palette.map(p=>p.rgb);
+  for(let i=0;i<n;i++){
+    const r=d[i*4],g=d[i*4+1],b=d[i*4+2];
+    let best=0,bd=1e12;for(let j=0;j<cols.length;j++){const dd=(r-cols[j][0])**2+(g-cols[j][1])**2+(b-cols[j][2])**2;if(dd<bd){bd=dd;best=j;}}
+    ch[best][i]=255*Math.max(0,1-Math.sqrt(bd)/180);
+  }
+  return ch;
+}
+
+function genNails(W,H,num){
+  const arr=[];
+  if(shape==='round'){
+    const a=W/2,b=H/2;
+    for(let i=0;i<num;i++){const t=2*Math.PI*i/num;arr.push([Math.min(W-1,Math.round(a+a*Math.cos(t))),Math.min(H-1,Math.round(b+b*Math.sin(t)))]);}
+  }else{
+    const per=2*(W+H);
+    for(let i=0;i<num;i++){
+      let d=per*i/num,x,y;
+      if(d<W){x=d;y=0;} else if(d<W+H){x=W-1;y=d-W;} else if(d<2*W+H){x=W-(d-W-H);y=H-1;} else {x=0;y=H-(d-2*W-H);}
+      arr.push([Math.max(0,Math.min(W-1,Math.round(x))),Math.max(0,Math.min(H-1,Math.round(y)))]);
+    }
+  }
+  return arr;
+}
+
+function drawLayer(ctx,seq,nails,rgb,alpha){
+  ctx.strokeStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;ctx.lineWidth=1;ctx.beginPath();
+  ctx.moveTo(nails[seq[0]][0],nails[seq[0]][1]);
+  for(let i=1;i<seq.length;i++)ctx.lineTo(nails[seq[i]][0],nails[seq[i]][1]);
+  ctx.stroke();
+}
+
+function makeWorker(){
+  const blob=new Blob([$('worker').textContent],{type:'application/javascript'});
+  return new Worker(URL.createObjectURL(blob));
+}
+
+$('run').onclick=()=>{
+  if(running)return;running=true;$('run').disabled=true;$('stop').style.display='block';
+  $('dl').style.display='none';$('viewToggle').style.display='none';$('bar').style.width='0';
+  const res=+$('res').value,num=+$('nails').value,maxLines=+$('lines').value,weight=+$('weight').value;
+  buildPalette();
+  const {data,W,H}=getImage(res);
+  const channels=buildChannels(data,W*H);
+  nailCoords=genNails(W,H,num);
+  sequences={};
+
+  const main=$('main');main.width=W;main.height=H;main.style.borderRadius=shape==='round'?'50%':'12px';
+  const mctx=main.getContext('2d');mctx.fillStyle='#fff';mctx.fillRect(0,0,W,H);
+
+  $('layers').innerHTML='';
+  const layerCtx=palette.map(p=>{
+    const box=document.createElement('div');box.className='layerbox';
+    const cv=document.createElement('canvas');cv.className='layer';cv.width=W;cv.height=H;
+    const cx=cv.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,W,H);
+    const lab=document.createElement('span');lab.innerHTML=`<i class="swatch" style="background:rgb(${p.rgb.join(',')})"></i>${p.name}`;
+    box.appendChild(cv);box.appendChild(lab);$('layers').appendChild(box);
+    return {cx};
+  });
+
+  if(worker)worker.terminate();
+  worker=makeWorker();
+  let residual=new Float32Array(W*H);
+  let li=0;
+
+  $('status').textContent='Precalculando líneas…';
+  worker.postMessage({type:'nails',nails:nailCoords,W});
+
+  worker.onmessage=ev=>{
+    const m=ev.data;
+    if(m.type==='nailsReady'){startLayer();return;}
+    if(m.type==='prog'){$('bar').style.width=((li+m.p)/palette.length*100)+'%';return;}
+    if(m.type==='layerDone'){
+      sequences[m.name]=m.seq;residual=m.residual;
+      const p=palette[li];
+      drawLayer(mctx,m.seq,nailCoords,p.rgb,0.5);
+      drawLayer(layerCtx[li].cx,m.seq,nailCoords,p.rgb,0.65);
+      li++;
+      if(li<palette.length)startLayer();else finish();
+    }
+  };
+
+  function startLayer(){
+    const p=palette[li];$('status').textContent=`Calculando capa ${p.name}…`;
+    worker.postMessage({type:'layer',arr:channels[li],N:num,maxLines,weight,residual,name:p.name},[residual.buffer]);
+  }
+  function finish(){
+    running=false;$('stop').style.display='none';$('run').disabled=false;
+    $('bar').style.width='100%';$('status').textContent='¡Completado! Descarga las secuencias.';
+    buildDownloads();$('dl').style.display='flex';$('viewToggle').style.display='flex';
+    worker.terminate();worker=null;
+  }
+};
+
+$('stop').onclick=()=>{if(worker){worker.terminate();worker=null;}running=false;$('stop').style.display='none';$('run').disabled=false;$('status').textContent='Detenido.';};
+
+$('viewToggle').onclick=e=>{
+  if(e.target.tagName!=='BUTTON')return;
+  [...$('viewToggle').children].forEach(b=>b.classList.remove('on'));
+  e.target.classList.add('on');
+  $('layers').style.display=e.target.dataset.v==='separate'?'grid':'none';
+};
+
+function buildDownloads(){
+  const dl=$('dl');dl.innerHTML='';
+  palette.forEach(p=>{const b=document.createElement('button');b.className='ghost';
+    b.innerHTML=`<i class="swatch" style="background:rgb(${p.rgb.join(',')})"></i> ${p.name}`;
+    b.onclick=()=>txt(p.name);dl.appendChild(b);});
+  const all=document.createElement('button');all.className='primary';all.textContent='↓ Todo (.txt)';
+  all.onclick=()=>palette.forEach((p,i)=>setTimeout(()=>txt(p.name),i*150));dl.appendChild(all);
+}
+function txt(name){
+  const seq=sequences[name];if(!seq)return;const p=palette.find(x=>x.name===name);
+  const blob=new Blob([`Secuencia ${name}  RGB(${p.rgb.join(',')})\nForma: ${shape} · ${seq.length-1} lineas · ${$('nails').value} clavos\n\n`+seq.join(' -> ')],{type:'text/plain'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Secuencia_${name}.txt`;a.click();
+}
+</script>
+</body>
+</html>
