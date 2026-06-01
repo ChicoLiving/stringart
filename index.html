@@ -97,8 +97,8 @@
     <label>Peso de línea <span class="val" id="vWeight">20</span></label>
     <input type="range" id="weight" min="5" max="60" step="5" value="20">
 
-    <label>Umbral de parada <span class="val" id="vMin">60</span></label>
-    <input type="range" id="minscore" min="0" max="300" step="10" value="60">
+    <label>Umbral de parada <span class="val" id="vMin">25</span></label>
+    <input type="range" id="minscore" min="0" max="120" step="5" value="25">
 
     <button class="primary" id="run" disabled>Generar String Art</button>
     <button class="ghost" id="stop" style="display:none">Detener</button>
@@ -150,13 +150,17 @@ function computeLayer(arr,N,maxLines,weight,residual,minScore,minGap){
     for(let c=0;c<N;c++){
       if(c===cur)continue;
       let gap=Math.abs(c-cur);gap=Math.min(gap,N-gap);
-      if(gap<minGap)continue;       // nada de líneas cortas
-      if(recent.includes(c))continue; // no volver a clavos recién usados
-      const line=lines[cur*N+c];let s=0;
-      for(let p=0;p<line.length;p++)s+=work[line[p]];
-      // suma total con normalización suave (sqrt): favorece cuerdas largas
-      // que cruzan zonas oscuras, en vez de orbitar en un punto (mata el remolino)
-      s=s/Math.sqrt(line.length);
+      if(gap<minGap)continue;       // gap mínimo: mata el remolino
+      if(recent.includes(c))continue;
+      const line=lines[cur*N+c];
+      let s=0,empty=0;
+      for(let p=0;p<line.length;p++){const v=work[line[p]];s+=v;if(v<6)empty++;}
+      // PROMEDIO de oscuridad (no suma): la línea debe ser oscura en promedio,
+      // así no teje sobre el blanco aunque sea larga.
+      s/=line.length;
+      // castiga fuerte cruzar muchos píxeles ya vacíos/blancos => respeta la silueta
+      const fracEmpty=empty/line.length;
+      s*=(1-fracEmpty*0.9);
       const key=cur<c?cur*N+c:c*N+cur;
       if(used.has(key))s*=0.25;
       if(s>bestScore){bestScore=s;best=c;bestLine=line;}
@@ -274,15 +278,13 @@ function extractColors(k){
 function buildChannels(imgData,n){
   const d=imgData.data;const ch=palette.map(()=>new Float32Array(n));
   const cols=palette.map(p=>p.rgb);
-  // ¿la paleta tiene blanco/casi-blanco? si es así, ese color casi no aporta tinta
   for(let i=0;i<n;i++){
     const r=d[i*4],g=d[i*4+1],b=d[i*4+2];
-    // asigna al color de paleta más cercano
     let best=0,bd=1e12;for(let j=0;j<cols.length;j++){const dd=(r-cols[j][0])**2+(g-cols[j][1])**2+(b-cols[j][2])**2;if(dd<bd){bd=dd;best=j;}}
-    const cercania=Math.max(0,1-Math.sqrt(bd)/150);   // qué tan bien matchea ese color
-    // "cantidad de hilo" = qué tan lejos del blanco está el píxel (espuma/cielo claro => poco hilo)
+    const cercania=Math.max(0,1-Math.sqrt(bd)/260);   // match de color (permisivo)
     const oscuridad=1-(r+g+b)/765;                     // 0 = blanco, 1 = negro
-    ch[best][i]=255*cercania*Math.pow(oscuridad,0.7);
+    // la tinta la manda la oscuridad; el color solo decide a qué capa va
+    ch[best][i]=255*oscuridad*(0.4+0.6*cercania);
   }
   return ch;
 }
@@ -363,7 +365,7 @@ $('run').onclick=()=>{
 
   function startLayer(){
     const p=palette[li];$('status').textContent=`Calculando capa ${p.name}…`;
-    const minGap=Math.max(3,Math.round(num*0.08)); // cuerdas deben cruzar un arco amplio
+    const minGap=Math.max(2,Math.round(num*0.04)); // gap moderado; el promedio ya evita el remolino
     worker.postMessage({type:'layer',arr:channels[li],N:num,maxLines,weight,residual,name:p.name,minScore:+$('minscore').value,minGap},[residual.buffer]);
   }
   function finish(){
