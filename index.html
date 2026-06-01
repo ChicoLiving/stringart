@@ -97,6 +97,9 @@
     <label>Peso de línea <span class="val" id="vWeight">20</span></label>
     <input type="range" id="weight" min="5" max="60" step="5" value="20">
 
+    <label>Umbral de parada <span class="val" id="vMin">8</span></label>
+    <input type="range" id="minscore" min="0" max="40" step="2" value="8">
+
     <button class="primary" id="run" disabled>Generar String Art</button>
     <button class="ghost" id="stop" style="display:none">Detener</button>
 
@@ -135,22 +138,33 @@ function buildLines(nails,W){
     lines[a*N+b]=l;lines[b*N+a]=l;
   }
 }
-function computeLayer(arr,N,maxLines,weight,residual){
+function computeLayer(arr,N,maxLines,weight,residual,minScore,minGap){
   const work=Float32Array.from(arr);
   for(let i=0;i<work.length;i++)work[i]=Math.max(0,work[i]-residual[i]);
   let cur=0;const seq=[cur];
+  const used=new Set();           // líneas ya tejidas (para penalizar repetición)
+  let prev=-1;
   for(let it=0;it<maxLines;it++){
     let best=-1,bestScore=-1,bestLine=null;
     for(let c=0;c<N;c++){
       if(c===cur)continue;
+      // evitar clavos demasiado cercanos (líneas cortas que ensucian)
+      let gap=Math.abs(c-cur);gap=Math.min(gap,N-gap);
+      if(gap<minGap)continue;
+      if(c===prev)continue;       // no devolverse al clavo anterior
       const line=lines[cur*N+c];let s=0;
       for(let p=0;p<line.length;p++)s+=work[line[p]];
       s/=line.length;
+      const key=cur<c?cur*N+c:c*N+cur;
+      if(used.has(key))s*=0.4;    // penaliza repetir exactamente la misma cuerda
       if(s>bestScore){bestScore=s;best=c;bestLine=line;}
     }
+    // parada temprana: si lo mejor disponible ya casi no aporta tinta, esta capa terminó
+    if(best<0||bestScore<minScore){postMessage({type:'prog',p:1});break;}
+    const key=cur<best?cur*N+best:best*N+cur;used.add(key);
     seq.push(best);
     for(let p=0;p<bestLine.length;p++){const idx=bestLine[p];work[idx]=Math.max(0,work[idx]-weight);residual[idx]+=weight;}
-    cur=best;
+    prev=cur;cur=best;
     if(it%150===0)postMessage({type:'prog',p:it/maxLines});
   }
   return seq;
@@ -159,7 +173,7 @@ onmessage=e=>{
   const d=e.data;
   if(d.type==='nails'){buildLines(d.nails,d.W);postMessage({type:'nailsReady'});return;}
   if(d.type==='layer'){
-    const seq=computeLayer(d.arr,d.N,d.maxLines,d.weight,d.residual);
+    const seq=computeLayer(d.arr,d.N,d.maxLines,d.weight,d.residual,d.minScore,d.minGap);
     postMessage({type:'layerDone',name:d.name,seq,residual:d.residual},[d.residual.buffer]);
   }
 };
@@ -170,7 +184,7 @@ let imgEl=null,running=false,sequences={},nailCoords=[],palette=[],worker=null;
 let mode='cmyk',shape='round';
 
 const $=id=>document.getElementById(id);
-[['nails','vNails'],['lines','vLines'],['res','vRes'],['weight','vWeight'],['kcolors','vK']]
+[['nails','vNails'],['lines','vLines'],['res','vRes'],['weight','vWeight'],['kcolors','vK'],['minscore','vMin']]
   .forEach(([s,v])=>$(s).oninput=()=>{$(v).textContent=$(s).value;if(s==='kcolors'&&imgEl)buildPalette();});
 $('ratio').oninput=()=>{const r=(+$('ratio').value/100);$('vRatio').textContent=`${(r*10).toFixed(0)}:10`;if(imgEl)previewSource();};
 
@@ -258,10 +272,15 @@ function extractColors(k){
 function buildChannels(imgData,n){
   const d=imgData.data;const ch=palette.map(()=>new Float32Array(n));
   const cols=palette.map(p=>p.rgb);
+  // ¿la paleta tiene blanco/casi-blanco? si es así, ese color casi no aporta tinta
   for(let i=0;i<n;i++){
     const r=d[i*4],g=d[i*4+1],b=d[i*4+2];
+    // asigna al color de paleta más cercano
     let best=0,bd=1e12;for(let j=0;j<cols.length;j++){const dd=(r-cols[j][0])**2+(g-cols[j][1])**2+(b-cols[j][2])**2;if(dd<bd){bd=dd;best=j;}}
-    ch[best][i]=255*Math.max(0,1-Math.sqrt(bd)/180);
+    const cercania=Math.max(0,1-Math.sqrt(bd)/150);   // qué tan bien matchea ese color
+    // "cantidad de hilo" = qué tan lejos del blanco está el píxel (espuma/cielo claro => poco hilo)
+    const oscuridad=1-(r+g+b)/765;                     // 0 = blanco, 1 = negro
+    ch[best][i]=255*cercania*Math.pow(oscuridad,0.7);
   }
   return ch;
 }
@@ -334,6 +353,7 @@ $('run').onclick=()=>{
       const p=palette[li];
       drawLayer(mctx,m.seq,nailCoords,p.rgb,0.5);
       drawLayer(layerCtx[li].cx,m.seq,nailCoords,p.rgb,0.65);
+      $('status').textContent=`Capa ${p.name}: ${m.seq.length-1} líneas`;
       li++;
       if(li<palette.length)startLayer();else finish();
     }
@@ -341,7 +361,8 @@ $('run').onclick=()=>{
 
   function startLayer(){
     const p=palette[li];$('status').textContent=`Calculando capa ${p.name}…`;
-    worker.postMessage({type:'layer',arr:channels[li],N:num,maxLines,weight,residual,name:p.name},[residual.buffer]);
+    const minGap=Math.max(1,Math.round(num*0.02)); // no conectar clavos casi vecinos
+    worker.postMessage({type:'layer',arr:channels[li],N:num,maxLines,weight,residual,name:p.name,minScore:+$('minscore').value,minGap},[residual.buffer]);
   }
   function finish(){
     running=false;$('stop').style.display='none';$('run').disabled=false;
